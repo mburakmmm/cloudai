@@ -1,0 +1,181 @@
+# Proje Adı: Kendi AI Chatbot Projem
+# Açıklama: PyTorch tabanlı, Transformer mimarisi kullanan, Flet GUI ile arayüzü olan ve Supabase/Lokal DB destekli özel bir üretken dil modeli.
+# Bu .cursorrules dosyası, projenin modüler olarak geliştirilmesi için bir yol haritası sunar.
+
+# -------------------------------------------------------------
+# MODÜL 0: PROJE YAPISI VE KURULUM
+# -------------------------------------------------------------
+
+@rule(name="proje-yapisi", description="Projenin temel klasör ve dosya yapısını oluştur.")
+def proje_yapisi_olustur():
+  """
+  Aşağıdaki komutları kullanarak projenin temel iskeletini oluştur:
+  mkdir -p src/data src/model src/training src/inference src/ui
+  touch src/data/__init__.py src/data/database_manager.py src/data/data_loader.py
+  touch src/model/__init__.py src/model/transformer_model.py src/model/tokenizer.py
+  touch src/training/__init__.py src/training/trainer.py src/training/config.py
+  touch src/inference/__init__.py src/inference/predictor.py
+  touch src/ui/__init__.py src/ui/chatbot_app.py src/ui/trainer_app.py
+  touch main.py requirements.txt .env
+  README.md ve .gitignore dosyalarını da oluştur. .gitignore içine .env, __pycache__/, *.pth gibi dosyaları ekle.
+  """
+
+@rule(name="gereksinimler", description="requirements.txt dosyasını doldur.")
+def gereksinimleri_doldur():
+  """
+  requirements.txt dosyasını aç ve projenin temel bağımlılıklarını ekle:
+  torch
+  transformers
+  flet
+  supabase
+  python-dotenv
+  pandas
+  scikit-learn
+  """
+
+# -------------------------------------------------------------
+# MODÜL 1: VERİ YÖNETİMİ (DATABASE VE VERİ YÜKLEYİCİ)
+# -------------------------------------------------------------
+
+@rule(name="veritabani-yapisi", description="Supabase ve Lokal veritabanı yönetim sınıfını oluşturur.")
+def veritabani_yapisi_olustur(file: str = "src/data/database_manager.py"):
+  """
+  @file(src/data/database_manager.py) dosyasını kullanarak bir `DatabaseManager` sınıfı oluştur.
+  Bu sınıf hem lokal SQLite veritabanına hem de Supabase'e bağlanabilmelidir.
+  - __init__ metodu: .env dosyasından Supabase URL ve KEY'ini, ayrıca lokal db dosya yolunu alsın.
+  - connect_supabase() metodu: Supabase istemcisini başlatsın.
+  - connect_local() metodu: SQLite bağlantısını kursun.
+  - create_tables_if_not_exist() metodu: Hem lokalde hem Supabase'de 'conversations' adında bir tablo oluştursun. Tablo kolonları: id (PK), prompt (TEXT), response (TEXT), intent (TEXT, nullable), context (TEXT, nullable), created_at (TIMESTAMP).
+  - add_conversation(prompt, response, intent=None, context=None) metodu: Veritabanına yeni bir konuşma eklesin.
+  - get_all_conversations() metodu: Tüm verileri bir Pandas DataFrame olarak döndürsün. Bu DataFrame eğitim için kullanılacak.
+  """
+
+@rule(name="veri-yukleyici", description="PyTorch için veri yükleyici (DataLoader) oluşturur.")
+def veri_yukleyici_olustur(file: str = "src/data/data_loader.py"):
+  """
+  @file(src/data/data_loader.py) dosyasını kullanarak PyTorch için bir `ConversationDataset` sınıfı oluştur.
+  - Bu sınıf `torch.utils.data.Dataset` sınıfından miras almalı.
+  - __init__(self, dataframe, tokenizer, max_length): DataFrame, tokenizer ve maksimum token uzunluğunu alsın. Prompt ve response'ları birleştirerek veri hazırlasın.
+  - __len__(self): Veri setinin uzunluğunu döndürsün.
+  - __getitem__(self, idx): Belirtilen index'teki veriyi token'lara ayırıp, tensor'e çevirip döndürsün. `input_ids`, `attention_mask` ve `labels` içermeli.
+  Unutma, chatbot eğitiminde `labels` genellikle `input_ids`'nin kaydırılmış bir kopyasıdır.
+  """
+
+# -------------------------------------------------------------
+# MODÜL 2: MODEL MİMARİSİ (TRANSFORMER VE TOKENIZER)
+# -------------------------------------------------------------
+
+@rule(name="tokenizer-yapisi", description="Kendi tokenizer'ımızı eğitmek ve kullanmak için bir sınıf oluşturur.")
+def tokenizer_yapisi_olustur(file: str = "src/model/tokenizer.py"):
+  """
+  @file(src/model/tokenizer.py) dosyasını kullanarak bir `CustomTokenizer` sınıfı oluştur.
+  Hugging Face'in `transformers` kütüphanesindeki `BertWordPieceTokenizer` veya `ByteLevelBPETokenizer` gibi bir tokenizer'ı temel alabilir.
+  - train(self, data_iterator, vocab_size): Veri üzerinden yeni bir tokenizer eğiten metot.
+  - save(self, path): Eğitilmiş tokenizer'ı dosyaya kaydetsin.
+  - load(self, path): Kayıtlı tokenizer'ı yüklesin.
+  - get_tokenizer(self): `transformers` kütüphanesiyle uyumlu tokenizer nesnesini döndürsün.
+  """
+
+@rule(name="transformer-modeli", description="PyTorch ile sıfırdan bir Transformer (Decoder-only) modeli oluşturur.")
+def transformer_modeli_olustur(file: str = "src/model/transformer_model.py"):
+  """
+  @file(src/model/transformer_model.py) dosyasında PyTorch'un `nn.Module` sınıfını kullanarak `GenerativeTransformer` adında bir model oluştur.
+  Bu, projenin en karmaşık kısmı.
+  1. `PositionalEncoding` sınıfı oluştur.
+  2. `GenerativeTransformer` sınıfının `__init__` metodu:
+     - Girdi olarak `vocab_size`, `d_model` (embedding boyutu), `nhead` (attention başlık sayısı), `num_decoder_layers`, `dim_feedforward` ve `dropout` gibi parametreleri alsın.
+     - `nn.Embedding` katmanı.
+     - `PositionalEncoding` katmanı.
+     - `nn.TransformerDecoderLayer` kullanarak bir decoder katmanı tanımla.
+     - Bu katmanları `nn.TransformerDecoder` içinde birleştir.
+     - Son olarak `vocab_size` boyutunda bir `nn.Linear` katmanı (output layer).
+  3. `forward(self, src, src_mask)` metodu: Girdi tensor'ünü alıp modelden geçirsin ve çıktı logit'lerini döndürsün. Maskeleme (masking) burada çok önemli.
+  """
+
+# -------------------------------------------------------------
+# MODÜL 3: EĞİTİM SÜRECİ
+# -------------------------------------------------------------
+
+@rule(name="config-dosyasi", description="Eğitim hiper-parametreleri için bir config dosyası oluşturur.")
+def config_dosyasi_olustur(file: str = "src/training/config.py"):
+  """
+  @file(src/training/config.py) dosyasında eğitimde kullanılacak tüm parametreleri tanımla:
+  MODEL_PARAMS = {
+      "vocab_size": 30000,
+      "d_model": 512,
+      "nhead": 8,
+      "num_decoder_layers": 6,
+      "dim_feedforward": 2048,
+      "dropout": 0.1
+  }
+  TRAIN_PARAMS = {
+      "learning_rate": 0.0001,
+      "batch_size": 16,
+      "num_epochs": 10,
+      "max_seq_length": 256
+  }
+  PATHS = {
+      "data": "data/conversations.csv", # veya veritabanından çekilecekse None
+      "model_save_path": "models/my_chatbot.pth",
+      "tokenizer_path": "models/tokenizer"
+  }
+  """
+
+@rule(name="egitim-dongusu", description="Modeli eğitmek için Trainer sınıfını oluşturur.")
+def egitim_dongusu_olustur(file: str = "src/training/trainer.py"):
+  """
+  @file(src/training/trainer.py) dosyasında `Trainer` sınıfını oluştur.
+  - `__init__(self, model, dataset, config)`: Modeli, veri setini ve konfigürasyon parametrelerini alsın.
+  - `setup_optimizer_and_loss(self)`: AdamW optimizer'ı ve CrossEntropyLoss'u tanımlasın.
+  - `train_epoch(self)`: Tek bir epoch için eğitim döngüsünü (training loop) yazsın.
+  - `evaluate(self)`: (Opsiyonel) Değerlendirme (validation) döngüsünü yazsın.
+  - `train(self)`: Tüm epoch'lar boyunca eğitimi yönetsin. Her epoch sonunda veya en iyi performansta modeli kaydetsin (`torch.save`).
+  Bu sınıf, eğitim sürecindeki ilerlemeyi (loss değerleri vb.) loglamalı.
+  """
+
+# -------------------------------------------------------------
+# MODÜL 4: ÇIKARIM (INFERENCE)
+# -------------------------------------------------------------
+
+@rule(name="tahmin-motoru", description="Eğitilmiş model ile tahmin yapmak için bir sınıf oluşturur.")
+def tahmin_motoru_olustur(file: str = "src/inference/predictor.py"):
+  """
+  @file(src/inference/predictor.py) dosyasında `Predictor` sınıfını oluştur.
+  - `__init__(self, model_path, tokenizer_path, config)`: Eğitilmiş modelin ve tokenizer'ın yolunu alıp yüklesin. Modeli `eval()` moduna alsın.
+  - `generate_response(self, prompt_text, max_length=50)`:
+    1. Girdi `prompt_text`'i tokenize etsin ve tensor'e çevirsin.
+    2. Modeli kullanarak adım adım (token by token) yeni token'lar üretsin (greedy search veya beam search).
+    3. Üretilen token dizisini metne (string) çevirip döndürsün.
+  """
+
+# -------------------------------------------------------------
+# MODÜL 5: KULLANICI ARAYÜZÜ (FLET)
+# -------------------------------------------------------------
+
+@rule(name="chatbot-gui", description="Flet ile modern bir chatbot arayüzü oluşturur.")
+def chatbot_gui_olustur(file: str = "src/ui/chatbot_app.py"):
+  """
+  @file(src/ui/chatbot_app.py) dosyasını kullanarak Flet tabanlı bir chatbot arayüzü tasarla.
+  - Ana `ft.Page`'i ayarla.
+  - Mesajların gösterileceği bir `ft.ListView` veya `ft.Column` oluştur. Her mesaj için ayrı bir `UserMessage` ve `BotMessage` custom widget'ı tasarla.
+  - Kullanıcının metin gireceği bir `ft.TextField` ve gönderme butonu `ft.IconButton` içeren bir satır oluştur.
+  - Gönderme butonuna tıklandığında `predictor.generate_response` metodunu çağırsın.
+  - Gelen cevabı ve kullanıcının mesajını ListView'e eklesin.
+  - Asenkron programlama (`async def`) kullanarak model cevabı beklenirken arayüzün kilitlenmesini önle.
+  """
+
+@rule(name="trainer-gui", description="Flet ile veri ekleme ve eğitim için bir arayüz oluşturur.")
+def trainer_gui_olustur(file: str = "src/ui/trainer_app.py"):
+  """
+  @file(src/ui/trainer_app.py) dosyasını kullanarak Flet tabanlı bir eğitim arayüzü tasarla.
+  Bu arayüz ayrı bir uygulama olacak.
+  - Bir sekme (Tabs) yapısı kullan.
+  - **Sekme 1: Veri Ekleme:**
+    - `prompt`, `response`, `intent` için `ft.TextField` alanları.
+    - "Veritabanına Ekle" butonu. Tıklandığında `database_manager.add_conversation` metodunu çağırsın.
+  - **Sekme 2: Eğitim:**
+    - "Tokenizer'ı Eğit" butonu.
+    - "Modeli Eğit" butonu.
+    - Eğitimi başlatacak ve ilerlemeyi gösterecek bir `ft.ProgressBar` ve `ft.Text` log alanı.
+    - Eğitim süreci, arayüzü dondurmamak için ayrı bir thread veya process'te çalıştırılmalı.
+  """
