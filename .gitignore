@@ -28,9 +28,11 @@ wheels/
 *.pt
 *.ckpt
 
-# Models and data
+# Models and data (only ignore data files, not source code)
 models/
-data/
+data/*.db
+data/*.csv
+data/*.json
 *.csv
 *.json
 
