@@ -286,15 +286,19 @@ class Trainer:
         dataloader_config = self.config.get('dataloader', {})
         hardware_config = self.config.get('hardware', {})
         
+        # CUDA varlığına göre pin_memory ayarla
+        pin_memory = torch.cuda.is_available() and hardware_config.get('pin_memory', True)
+        num_workers = hardware_config.get('num_workers', 4) if torch.cuda.is_available() else 0
+        
         train_loader = DataLoader(
             train_dataset, 
             batch_size=batch_size, 
             shuffle=True,
             collate_fn=self.dataset.collate_fn,
-            num_workers=hardware_config.get('num_workers', 4),
-            pin_memory=hardware_config.get('pin_memory', True),
-            persistent_workers=dataloader_config.get('persistent_workers', True),
-            prefetch_factor=dataloader_config.get('prefetch_factor', 2)
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=dataloader_config.get('persistent_workers', True) if num_workers > 0 else False,
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else 2
         )
         
         val_loader = DataLoader(
@@ -302,10 +306,10 @@ class Trainer:
             batch_size=batch_size, 
             shuffle=False,
             collate_fn=self.dataset.collate_fn,
-            num_workers=hardware_config.get('num_workers', 4),
-            pin_memory=hardware_config.get('pin_memory', True),
-            persistent_workers=dataloader_config.get('persistent_workers', True),
-            prefetch_factor=dataloader_config.get('prefetch_factor', 2)
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            persistent_workers=dataloader_config.get('persistent_workers', True) if num_workers > 0 else False,
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else 2
         )
         
         print(f"📚 Train: {len(train_dataset)}, Validation: {len(val_dataset)}")

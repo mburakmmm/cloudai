@@ -784,8 +784,9 @@ class TrainerApp:
             import torch
             device_info = []
             
-            # PyTorch versiyonu
-            device_info.append(f"PyTorch: {torch.__version__}")
+            # PyTorch versiyonu ve CUDA durumu
+            pytorch_version = torch.__version__
+            device_info.append(f"PyTorch: {pytorch_version}")
             
             # CUDA durumu
             if torch.cuda.is_available():
@@ -798,14 +799,20 @@ class TrainerApp:
                 device_info.append(f"GPU: {gpu_name} ({gpu_memory:.1f} GB)")
                 device_info.append(f"GPU Count: {device_count}")
                 
+                # Device bilgisi ekle
+                current_device = torch.cuda.current_device()
+                device_info.append(f"Active Device: {current_device}")
+                
                 return " | ".join(device_info)
             else:
                 # CUDA neden mevcut değil detaylı bilgi
                 device_info.append("CUDA: Mevcut değil")
                 
-                # Olası nedenler
-                if hasattr(torch.version, 'cuda'):
+                # PyTorch CUDA versiyonu
+                if hasattr(torch.version, 'cuda') and torch.version.cuda:
                     device_info.append(f"PyTorch CUDA: {torch.version.cuda}")
+                else:
+                    device_info.append("PyTorch CUDA: None (CPU versiyonu)")
                 
                 # CUDA toolkit kontrolü
                 try:
