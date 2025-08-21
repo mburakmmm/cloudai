@@ -32,18 +32,19 @@ class ConversationDataset(Dataset):
         """Veriyi eğitim için hazırla"""
         print(f"📚 Dataset hazırlanıyor... {len(self.dataframe)} konuşma")
         
-        # Prompt ve response'ları birleştir
-        self.texts = []
+        # Sadece prompt'ları al, response'ları ayrı tut
+        self.prompts = []
+        self.responses = []
         for _, row in self.dataframe.iterrows():
-            # Prompt ve response'u birleştir
-            combined_text = f"{row['prompt']} {row['response']}"
-            self.texts.append(combined_text)
+            # Prompt ve response'u ayrı ayrı sakla
+            self.prompts.append(row['prompt'])
+            self.responses.append(row['response'])
         
-        print(f"✅ {len(self.texts)} metin hazırlandı")
+        print(f"✅ {len(self.prompts)} prompt ve {len(self.responses)} response hazırlandı")
     
     def __len__(self) -> int:
         """Dataset uzunluğunu döndür"""
-        return len(self.texts)
+        return len(self.prompts)
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
@@ -55,40 +56,37 @@ class ConversationDataset(Dataset):
         Returns:
             Dict: input_ids, attention_mask ve labels içeren tensor'lar
         """
-        text = self.texts[idx]
+        prompt = self.prompts[idx]
+        response = self.responses[idx]
         
-        # Tokenize et
-        encoding = self.tokenizer.encode(text, max_length=self.max_length)
+        # Prompt'u tokenize et
+        prompt_encoding = self.tokenizer.encode(prompt, max_length=self.max_length//2)
+        prompt_ids = prompt_encoding['input_ids'].squeeze(0)
         
-        input_ids = encoding['input_ids'].squeeze(0)  # [seq_len]
-        attention_mask = encoding['attention_mask'].squeeze(0)  # [seq_len]
+        # Response'u tokenize et
+        response_encoding = self.tokenizer.encode(response, max_length=self.max_length//2)
+        response_ids = response_encoding['input_ids'].squeeze(0)
         
-        # Labels oluştur (shifted input_ids)
-        labels = input_ids.clone()
+        # Prompt ve response'u birleştir (eğitim için)
+        input_ids = torch.cat([prompt_ids, response_ids])
         
-        # Causal language modeling için labels'ı kaydır
-        # Son token'ı kaldır, başa padding ekle
-        labels = labels[1:].clone()  # [seq_len-1]
-        labels = torch.cat([labels, torch.tensor([-100])])  # -100 = ignore index
+        # Attention mask oluştur
+        attention_mask = torch.ones(len(input_ids))
         
-        # Input ve attention mask'i de max_length'e getir
+        # Labels oluştur (sadece response kısmı için)
+        labels = torch.full((len(input_ids),), -100)  # -100 = ignore index
+        labels[len(prompt_ids):] = response_ids  # Sadece response kısmını label olarak kullan
+        
+        # Padding ve truncation
         if len(input_ids) < self.max_length:
             pad_length = self.max_length - len(input_ids)
-            # Input IDs'i pad et
             input_ids = torch.cat([input_ids, torch.full((pad_length,), self.tokenizer.get_tokenizer().pad_token_id)])
-            # Attention mask'i pad et
             attention_mask = torch.cat([attention_mask, torch.zeros(pad_length)])
-        
-        # Truncate eğer çok uzunsa
-        input_ids = input_ids[:self.max_length]
-        attention_mask = attention_mask[:self.max_length]
-        
-        # Labels'ı da aynı uzunlukta tut
-        if len(labels) < self.max_length:
-            pad_length = self.max_length - len(labels)
             labels = torch.cat([labels, torch.full((pad_length,), -100)])
-        
-        labels = labels[:self.max_length]
+        else:
+            input_ids = input_ids[:self.max_length]
+            attention_mask = attention_mask[:self.max_length]
+            labels = labels[:self.max_length]
         
         return {
             'input_ids': input_ids,
@@ -104,7 +102,8 @@ class ConversationDataset(Dataset):
         sample = self[idx]
         
         # Decode edilmiş metinleri de ekle
-        sample['text'] = self.texts[idx]
+        sample['prompt'] = self.prompts[idx]
+        sample['response'] = self.responses[idx]
         sample['decoded_input'] = self.tokenizer.decode(sample['input_ids'])
         sample['decoded_labels'] = self.tokenizer.decode(
             sample['labels'][sample['labels'] != -100]
@@ -114,19 +113,23 @@ class ConversationDataset(Dataset):
     
     def get_statistics(self) -> Dict:
         """Dataset istatistiklerini döndür"""
-        # Metin uzunlukları
-        text_lengths = [len(text.split()) for text in self.texts]
+        # Prompt ve response uzunlukları
+        prompt_lengths = [len(prompt.split()) for prompt in self.prompts]
+        response_lengths = [len(response.split()) for prompt in self.responses]
         
         # Token uzunlukları
         token_lengths = []
-        for text in self.texts[:100]:  # İlk 100 metin için
-            encoding = self.tokenizer.encode(text)
-            token_lengths.append(encoding['input_ids'].size(1))
+        for prompt, response in zip(self.prompts[:100], self.responses[:100]):  # İlk 100 için
+            prompt_encoding = self.tokenizer.encode(prompt)
+            response_encoding = self.tokenizer.encode(response)
+            token_lengths.append(prompt_encoding['input_ids'].size(1) + response_encoding['input_ids'].size(1))
         
         stats = {
             'total_conversations': len(self.dataframe),
-            'avg_text_length': sum(text_lengths) / len(text_lengths),
-            'max_text_length': max(text_lengths),
+            'avg_prompt_length': sum(prompt_lengths) / len(prompt_lengths),
+            'avg_response_length': sum(response_lengths) / len(response_lengths),
+            'max_prompt_length': max(prompt_lengths),
+            'max_response_length': max(response_lengths),
             'min_text_length': min(text_lengths),
             'avg_token_length': sum(token_lengths) / len(token_lengths) if token_lengths else 0,
             'max_token_length': max(token_lengths) if token_lengths else 0,

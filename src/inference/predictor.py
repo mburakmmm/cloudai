@@ -39,12 +39,12 @@ class Predictor:
         # Generation parametreleri
         self.default_params = {
             'max_length': 100,
-            'temperature': 0.7,
-            'top_k': 50,
-            'top_p': 0.9,
+            'temperature': 0.3,  # 0.7 → 0.3 (daha deterministik)
+            'top_k': 20,  # 50 → 20 (daha odaklı)
+            'top_p': 0.8,  # 0.9 → 0.8 (daha kontrollü)
             'do_sample': True,
-            'num_beams': 1,
-            'repetition_penalty': 1.1,
+            'num_beams': 3,  # 1 → 3 (beam search)
+            'repetition_penalty': 1.2,  # 1.1 → 1.2 (tekrarı azalt)
             'length_penalty': 1.0,
             'no_repeat_ngram_size': 3
         }

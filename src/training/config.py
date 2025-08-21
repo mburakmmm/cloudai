@@ -10,7 +10,7 @@ from typing import Dict, Any
 def get_model_config() -> Dict[str, Any]:
     """Model konfigürasyonu"""
     return {
-        "vocab_size": 30000,
+        "vocab_size": 8000,  # 30000 → 8000 (daha iyi öğrenme)
         "d_model": 512,
         "nhead": 8,
         "num_decoder_layers": 6,
@@ -23,17 +23,17 @@ def get_model_config() -> Dict[str, Any]:
 def get_training_config() -> Dict[str, Any]:
     """Eğitim konfigürasyonu"""
     return {
-        "learning_rate": 2e-4,  # Biraz artırıldı
+        "learning_rate": 1e-4,  # 2e-4 → 1e-4 (daha stabil)
         "weight_decay": 0.01,
-        "batch_size": 32,  # 16 → 32 (2x hız)
-        "num_epochs": 10,
+        "batch_size": 16,  # 32 → 16 (daha iyi öğrenme)
+        "num_epochs": 50,  # 10 → 50 (5x daha fazla eğitim)
         "max_seq_length": 256,
-        "warmup_steps": 100,
+        "warmup_steps": 500,  # 100 → 500 (daha uzun warmup)
         "gradient_clip_val": 1.0,
-        "early_stopping_patience": 5,
-        "save_every": 1,
-        "gradient_accumulation_steps": 2,  # Yeni: Effective batch size = 64
-        "eval_every": 2  # Yeni: Her 2 epoch'ta validation
+        "early_stopping_patience": 10,  # 5 → 10 (daha sabırlı)
+        "save_every": 5,  # 1 → 5 (daha az checkpoint)
+        "gradient_accumulation_steps": 4,  # 2 → 4 (daha büyük effective batch)
+        "eval_every": 5  # 2 → 5 (daha az validation)
     }
 
 

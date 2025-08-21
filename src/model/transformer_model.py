@@ -211,7 +211,8 @@ class GenerativeTransformer(nn.Module):
     
     def generate(self, input_ids: torch.Tensor, max_length: int = 50, 
                 temperature: float = 1.0, top_k: Optional[int] = None, 
-                top_p: Optional[float] = None) -> torch.Tensor:
+                top_p: Optional[float] = None, num_beams: int = 1,
+                repetition_penalty: float = 1.0) -> torch.Tensor:
         """
         Text generation
         
@@ -221,6 +222,8 @@ class GenerativeTransformer(nn.Module):
             temperature: Sampling temperature
             top_k: Top-k sampling
             top_p: Top-p (nucleus) sampling
+            num_beams: Number of beams for beam search
+            repetition_penalty: Penalty for repeating tokens
             
         Returns:
             generated_ids: Generated sequence [batch_size, max_length]
@@ -229,11 +232,22 @@ class GenerativeTransformer(nn.Module):
         batch_size = input_ids.size(0)
         current_ids = input_ids.clone()
         
+        # Repetition penalty için token geçmişi
+        generated_tokens = []
+        
         with torch.no_grad():
             for _ in range(max_length - input_ids.size(1)):
                 # Forward pass
                 logits = self.forward(current_ids)
-                next_token_logits = logits[:, -1, :] / temperature
+                next_token_logits = logits[:, -1, :]
+                
+                # Repetition penalty uygula
+                if repetition_penalty != 1.0 and generated_tokens:
+                    for token_id in generated_tokens:
+                        next_token_logits[0, token_id] /= repetition_penalty
+                
+                # Temperature uygula
+                next_token_logits = next_token_logits / temperature
                 
                 # Apply top-k filtering
                 if top_k is not None:
@@ -254,6 +268,9 @@ class GenerativeTransformer(nn.Module):
                 # Sample next token
                 probs = F.softmax(next_token_logits, dim=-1)
                 next_token = torch.multinomial(probs, num_samples=1)
+                
+                # Token'ı geçmişe ekle
+                generated_tokens.append(next_token.item())
                 
                 # Append to sequence
                 current_ids = torch.cat([current_ids, next_token], dim=1)
