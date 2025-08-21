@@ -23,15 +23,17 @@ def get_model_config() -> Dict[str, Any]:
 def get_training_config() -> Dict[str, Any]:
     """Eğitim konfigürasyonu"""
     return {
-        "learning_rate": 1e-4,
+        "learning_rate": 2e-4,  # Biraz artırıldı
         "weight_decay": 0.01,
-        "batch_size": 16,
+        "batch_size": 32,  # 16 → 32 (2x hız)
         "num_epochs": 10,
         "max_seq_length": 256,
         "warmup_steps": 100,
         "gradient_clip_val": 1.0,
         "early_stopping_patience": 5,
-        "save_every": 1
+        "save_every": 1,
+        "gradient_accumulation_steps": 2,  # Yeni: Effective batch size = 64
+        "eval_every": 2  # Yeni: Her 2 epoch'ta validation
     }
 
 
@@ -51,9 +53,10 @@ def get_hardware_config() -> Dict[str, Any]:
     """Donanım konfigürasyonu"""
     return {
         "device": "auto",  # auto, cuda, cpu, mps
-        "num_workers": 4,
+        "num_workers": 8,  # 4 → 8 (2x paralel işlem)
         "pin_memory": True,
-        "mixed_precision": False
+        "mixed_precision": True,  # False → True (FP16, 2x hız)
+        "compile_model": True  # Yeni: PyTorch 2.0+ compile
     }
 
 
@@ -81,7 +84,9 @@ def get_dataloader_config() -> Dict[str, Any]:
     return {
         "shuffle": True,
         "drop_last": True,
-        "pin_memory": True
+        "pin_memory": True,
+        "persistent_workers": True,  # Yeni: Worker'ları yeniden başlatma
+        "prefetch_factor": 2  # Yeni: Veri önceden yükleme
     }
 
 

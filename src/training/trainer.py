@@ -37,6 +37,20 @@ class Trainer:
         # Model'i device'a taşı
         self.model.to(self.device)
         
+        # Mixed Precision (FP16) - 2x hız
+        self.use_amp = self.config.get('mixed_precision', False) and self.device.type == 'cuda'
+        if self.use_amp:
+            self.scaler = torch.cuda.amp.GradScaler()
+            print("🚀 Mixed Precision (FP16) etkinleştirildi!")
+        
+        # Model Compile (PyTorch 2.0+) - 1.2-1.5x hız
+        if self.config.get('compile_model', False) and hasattr(torch, 'compile'):
+            try:
+                self.model = torch.compile(self.model, mode="max-autotune")
+                print("🚀 Model compile edildi (PyTorch 2.0+)!")
+            except Exception as e:
+                print(f"⚠️ Model compile hatası: {e}")
+        
         # Eğitim durumu
         self.current_epoch = 0
         self.best_loss = float('inf')
@@ -57,6 +71,9 @@ class Trainer:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         
         print(f"✅ Trainer hazır! Model parametreleri: {self.model.count_parameters():,}")
+        if self.use_amp:
+            print(f"🚀 Mixed Precision: Etkin (FP16)")
+        print(f"🚀 Model Compile: {'Etkin' if hasattr(self.model, '_orig_mod') else 'Devre dışı'}")
     
     def _setup_optimizer_and_loss(self):
         """Optimizer ve loss fonksiyonunu ayarla"""
@@ -99,39 +116,59 @@ class Trainer:
         total_loss = 0.0
         num_batches = len(dataloader)
         
+        # Gradient accumulation
+        accumulation_steps = self.config.get('gradient_accumulation_steps', 1)
+        self.optimizer.zero_grad()
+        
         for batch_idx, batch in enumerate(dataloader):
             # Batch'i device'a taşı
             input_ids = batch['input_ids'].to(self.device)
             attention_mask = batch['attention_mask'].to(self.device)
             labels = batch['labels'].to(self.device)
             
-            # Forward pass
-            self.optimizer.zero_grad()
-            outputs = self.model(input_ids, attention_mask)
-            
-            # Loss hesapla
-            # outputs: [batch_size, seq_len, vocab_size]
-            # labels: [batch_size, seq_len]
-            loss = self.criterion(
-                outputs.view(-1, outputs.size(-1)),  # [batch_size * seq_len, vocab_size]
-                labels.view(-1)  # [batch_size * seq_len]
-            )
+            # Mixed Precision Forward pass
+            if self.use_amp:
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(input_ids, attention_mask)
+                    loss = self.criterion(
+                        outputs.view(-1, outputs.size(-1)),
+                        labels.view(-1)
+                    )
+                    loss = loss / accumulation_steps  # Normalize loss
+            else:
+                outputs = self.model(input_ids, attention_mask)
+                loss = self.criterion(
+                    outputs.view(-1, outputs.size(-1)),
+                    labels.view(-1)
+                )
+                loss = loss / accumulation_steps  # Normalize loss
             
             # Backward pass
-            loss.backward()
+            if self.use_amp:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
             
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
-            # Optimizer step
-            self.optimizer.step()
+            # Gradient accumulation
+            if (batch_idx + 1) % accumulation_steps == 0:
+                # Gradient clipping
+                if self.use_amp:
+                    self.scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                else:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                    self.optimizer.step()
+                
+                self.optimizer.zero_grad()
             
             # Loss'u topla
-            total_loss += loss.item()
+            total_loss += loss.item() * accumulation_steps
             
-            # Progress
-            if batch_idx % 10 == 0:
-                print(f"  Batch {batch_idx}/{num_batches} - Loss: {loss.item():.4f}")
+            # Progress (daha az sıklıkta)
+            if batch_idx % 50 == 0:
+                print(f"  Batch {batch_idx}/{num_batches} - Loss: {loss.item() * accumulation_steps:.4f}")
         
         # Scheduler step
         self.scheduler.step()
@@ -232,6 +269,10 @@ class Trainer:
         
         print(f"🚀 Eğitim başlıyor... {num_epochs} epoch")
         print(f"📊 Batch size: {batch_size}, Validation split: {validation_split}")
+        print(f"🚀 Mixed Precision: {'Etkin' if self.use_amp else 'Devre dışı'}")
+        print(f"🚀 Model Compile: {'Etkin' if hasattr(self.model, '_orig_mod') else 'Devre dışı'}")
+        print(f"📈 Gradient Accumulation: {self.config.get('gradient_accumulation_steps', 1)}")
+        print(f"🔧 Effective Batch Size: {batch_size * self.config.get('gradient_accumulation_steps', 1)}")
         
         # DataLoader oluştur
         train_size = int((1 - validation_split) * len(self.dataset))
@@ -241,18 +282,30 @@ class Trainer:
             self.dataset, [train_size, val_size]
         )
         
+        # DataLoader optimizasyonları
+        dataloader_config = self.config.get('dataloader', {})
+        hardware_config = self.config.get('hardware', {})
+        
         train_loader = DataLoader(
             train_dataset, 
             batch_size=batch_size, 
             shuffle=True,
-            collate_fn=self.dataset.collate_fn
+            collate_fn=self.dataset.collate_fn,
+            num_workers=hardware_config.get('num_workers', 4),
+            pin_memory=hardware_config.get('pin_memory', True),
+            persistent_workers=dataloader_config.get('persistent_workers', True),
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2)
         )
         
         val_loader = DataLoader(
             val_dataset, 
             batch_size=batch_size, 
             shuffle=False,
-            collate_fn=self.dataset.collate_fn
+            collate_fn=self.dataset.collate_fn,
+            num_workers=hardware_config.get('num_workers', 4),
+            pin_memory=hardware_config.get('pin_memory', True),
+            persistent_workers=dataloader_config.get('persistent_workers', True),
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2)
         )
         
         print(f"📚 Train: {len(train_dataset)}, Validation: {len(val_dataset)}")
