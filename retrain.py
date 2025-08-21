@@ -15,6 +15,8 @@ import argparse
 sys.path.insert(0, os.path.dirname(__file__))
 
 try:
+    import torch
+    import pandas as pd
     from src.data.database_manager import DatabaseManager
     from src.model.tokenizer import CustomTokenizer
     from src.model.transformer_model import GenerativeTransformer
@@ -53,11 +55,11 @@ class ContinuousTrainer:
         # Veritabanı yöneticisi
         self.db_manager = DatabaseManager()
         
-        # Text preprocessor
+        # Text preprocessor (emoji desteği olmadan)
         self.preprocessor = TextPreprocessor(
             lowercase=True,
             remove_html=True,
-            remove_emojis=False,
+            remove_emojis=False,  # emoji modülü olmadığında False
             min_length=10,
             max_length=500
         )

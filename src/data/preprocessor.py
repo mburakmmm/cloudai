@@ -8,7 +8,14 @@ import string
 import unicodedata
 from typing import List, Optional, Dict
 import html
-import emoji
+
+# Emoji desteği (opsiyonel)
+try:
+    import emoji
+    EMOJI_AVAILABLE = True
+except ImportError:
+    EMOJI_AVAILABLE = False
+    print("⚠️ emoji kütüphanesi bulunamadı. Emoji temizleme devre dışı.")
 
 
 class TextPreprocessor:
@@ -85,8 +92,19 @@ class TextPreprocessor:
             text = self._remove_html_tags(text)
         
         # Emoji'leri kaldır
-        if self.remove_emojis:
+        if self.remove_emojis and EMOJI_AVAILABLE:
             text = emoji.replace_emojis(text, replace='')
+        elif self.remove_emojis and not EMOJI_AVAILABLE:
+            # Basit emoji temizleme (Unicode emoji karakterleri)
+            emoji_pattern = re.compile("["
+                u"\U0001F600-\U0001F64F"  # emoticons
+                u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+                u"\U0001F680-\U0001F6FF"  # transport & map symbols
+                u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+                u"\U00002702-\U000027B0"
+                u"\U000024C2-\U0001F251"
+                "]+", flags=re.UNICODE)
+            text = emoji_pattern.sub('', text)
         
         # Küçük harfe çevir
         if self.lowercase:
