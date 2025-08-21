@@ -12,6 +12,9 @@ from torch.utils.data import DataLoader
 from typing import Dict, Optional, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
+import json
+import csv
+from datetime import datetime
 
 
 class Trainer:
@@ -69,6 +72,10 @@ class Trainer:
         # Checkpoint dizini
         self.checkpoint_dir = "checkpoints"
         os.makedirs(self.checkpoint_dir, exist_ok=True)
+        
+        # Deney takibi için log dosyası
+        self.experiment_log_file = "training_logs.csv"
+        self._init_experiment_log()
         
         print(f"✅ Trainer hazır! Model parametreleri: {self.model.count_parameters():,}")
         if self.use_amp:
@@ -226,6 +233,78 @@ class Trainer:
         
         print(f"💾 Checkpoint kaydedildi: {checkpoint_path}")
     
+    def save_model(self, version: str = None, include_tokenizer: bool = True):
+        """
+        Modeli Hugging Face formatında kaydet
+        
+        Args:
+            version: Model versiyonu (örn: 'v1', 'v2')
+            include_tokenizer: Tokenizer'ı da dahil et
+        """
+        if version is None:
+            version = f"v{len(self.training_losses)}"
+        
+        model_dir = f"models/chatbot-{version}"
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # Model ağırlıkları
+        model_path = os.path.join(model_dir, "pytorch_model.pth")
+        torch.save(self.model.state_dict(), model_path)
+        
+        # Model konfigürasyonu
+        config_path = os.path.join(model_dir, "config.json")
+        model_config = self.config.get('model', {})
+        config_data = {
+            'model_type': 'GenerativeTransformer',
+            'vocab_size': model_config.get('vocab_size', 30000),
+            'd_model': model_config.get('d_model', 512),
+            'nhead': model_config.get('nhead', 8),
+            'num_decoder_layers': model_config.get('num_decoder_layers', 6),
+            'dim_feedforward': model_config.get('dim_feedforward', 2048),
+            'max_seq_length': model_config.get('max_seq_length', 512),
+            'dropout': model_config.get('dropout', 0.1),
+            'training_config': self.config.get('training', {}),
+            'hardware_config': self.config.get('hardware', {})
+        }
+        
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=2, ensure_ascii=False)
+        
+        # Tokenizer (eğer isteniyorsa)
+        if include_tokenizer:
+            tokenizer_dir = os.path.join(model_dir, "tokenizer")
+            if os.path.exists("models/tokenizer"):
+                import shutil
+                shutil.copytree("models/tokenizer", tokenizer_dir, dirs_exist_ok=True)
+        
+        # Eğitim sonuçları
+        results_path = os.path.join(model_dir, "training_results.json")
+        training_results = {
+            'version': version,
+            'final_train_loss': self.training_losses[-1] if self.training_losses else None,
+            'final_val_loss': self.validation_losses[-1] if self.validation_losses else None,
+            'best_val_loss': self.best_loss,
+            'total_epochs': len(self.training_losses),
+            'total_parameters': self.model.count_parameters(),
+            'device_used': str(self.device),
+            'mixed_precision': self.use_amp,
+            'model_compile': hasattr(self.model, '_orig_mod'),
+            'training_time': 0,  # Basitleştirildi
+            'config': self.config
+        }
+        
+        with open(results_path, 'w', encoding='utf-8') as f:
+            json.dump(training_results, f, indent=2, ensure_ascii=False)
+        
+        print(f"🚀 Model {version} kaydedildi: {model_dir}")
+        print(f"  📁 Model: {model_path}")
+        print(f"  📁 Config: {config_path}")
+        if include_tokenizer:
+            print(f"  📁 Tokenizer: {tokenizer_dir}")
+        print(f"  📁 Results: {results_path}")
+        
+        return model_dir
+    
     def load_checkpoint(self, checkpoint_path: str):
         """Checkpoint yükle"""
         if not os.path.exists(checkpoint_path):
@@ -365,6 +444,16 @@ class Trainer:
         print(f"⏱️  Toplam süre: {total_time:.2f}s")
         print(f"🏆 En iyi validation loss: {self.best_loss:.4f}")
         
+        # Deney sonuçlarını logla
+        experiment_metrics = {
+            'epoch': len(self.training_losses),
+            'train_loss': self.training_losses[-1] if self.training_losses else 0,
+            'val_loss': self.validation_losses[-1] if self.validation_losses else 0,
+            'training_time': total_time,
+            'learning_rate': self.optimizer.param_groups[0]['lr']
+        }
+        self.log_experiment(experiment_metrics)
+        
         # Sonuçları döndür
         results = {
             'final_train_loss': self.training_losses[-1] if self.training_losses else None,
@@ -415,3 +504,81 @@ class Trainer:
             'training_losses': self.training_losses,
             'validation_losses': self.validation_losses
         }
+    
+    def _init_experiment_log(self):
+        """Deney log dosyasını başlat"""
+        if not os.path.exists(self.experiment_log_file):
+            with open(self.experiment_log_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    'timestamp', 'experiment_id', 'epoch', 'learning_rate', 'batch_size',
+                    'train_loss', 'val_loss', 'perplexity', 'accuracy', 'bleu_score',
+                    'training_time', 'device', 'model_params', 'mixed_precision',
+                    'model_compile', 'gradient_accumulation', 'vocab_size', 'd_model'
+                ])
+    
+    def log_experiment(self, metrics: Dict[str, float]):
+        """
+        Deney sonuçlarını log dosyasına kaydet
+        
+        Args:
+            metrics: Deney metrikleri
+        """
+        timestamp = datetime.now().isoformat()
+        experiment_id = f"exp_{int(time.time())}"
+        
+        # Model konfigürasyonu
+        model_config = self.config.get('model', {})
+        training_config = self.config.get('training', {})
+        hardware_config = self.config.get('hardware', {})
+        
+        row = [
+            timestamp,
+            experiment_id,
+            metrics.get('epoch', 0),
+            metrics.get('learning_rate', training_config.get('learning_rate', 0)),
+            training_config.get('batch_size', 0),
+            metrics.get('train_loss', 0),
+            metrics.get('val_loss', 0),
+            metrics.get('perplexity', 0),
+            metrics.get('accuracy', 0),
+            metrics.get('bleu_score', 0),
+            metrics.get('training_time', 0),
+            str(self.device),
+            self.model.count_parameters(),
+            self.use_amp,
+            hasattr(self.model, '_orig_mod'),
+            training_config.get('gradient_accumulation_steps', 1),
+            model_config.get('vocab_size', 0),
+            model_config.get('d_model', 0)
+        ]
+        
+        with open(self.experiment_log_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
+        
+        print(f"📊 Deney loglandı: {experiment_id}")
+    
+    def get_experiment_summary(self) -> Dict[str, List]:
+        """Tüm deney sonuçlarını oku ve özetle"""
+        if not os.path.exists(self.experiment_log_file):
+            return {}
+        
+        experiments = {
+            'timestamps': [], 'epochs': [], 'train_losses': [], 'val_losses': [],
+            'perplexities': [], 'accuracies': [], 'bleu_scores': [], 'training_times': []
+        }
+        
+        with open(self.experiment_log_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                experiments['timestamps'].append(row['timestamp'])
+                experiments['epochs'].append(int(row['epoch']))
+                experiments['train_losses'].append(float(row['train_loss']))
+                experiments['val_losses'].append(float(row['val_loss']))
+                experiments['perplexities'].append(float(row['perplexity']))
+                experiments['accuracies'].append(float(row['accuracy']))
+                experiments['bleu_scores'].append(float(row['bleu_score']))
+                experiments['training_times'].append(float(row['training_time']))
+        
+        return experiments

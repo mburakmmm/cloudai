@@ -93,17 +93,14 @@ class Predictor:
             raise
     
     def generate_response(self, prompt_text: str, max_length: Optional[int] = None, 
-                         temperature: Optional[float] = None, top_k: Optional[int] = None,
-                         top_p: Optional[float] = None, **kwargs) -> str:
+                         strategy: str = 'greedy', **kwargs) -> str:
         """
         Prompt'a cevap üret
         
         Args:
             prompt_text: Girdi metni
             max_length: Maksimum üretim uzunluğu
-            temperature: Sampling sıcaklığı
-            top_k: Top-k sampling
-            top_p: Top-p (nucleus) sampling
+            strategy: Üretim stratejisi ('greedy', 'beam', 'top-k', 'nucleus')
             **kwargs: Diğer generation parametreleri
             
         Returns:
@@ -112,17 +109,8 @@ class Predictor:
         if not self.model or not self.tokenizer:
             raise ValueError("Model veya tokenizer yüklenmemiş!")
         
-        # Parametreleri ayarla
-        params = self.default_params.copy()
-        if max_length is not None:
-            params['max_length'] = max_length
-        if temperature is not None:
-            params['temperature'] = temperature
-        if top_k is not None:
-            params['top_k'] = top_k
-        if top_p is not None:
-            params['top_p'] = top_p
-        params.update(kwargs)
+        # Stratejiye göre parametreleri ayarla
+        generation_params = self._get_generation_params(strategy, max_length, **kwargs)
         
         try:
             # Prompt'u tokenize et
@@ -133,10 +121,7 @@ class Predictor:
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     input_ids=input_ids,
-                    max_length=params['max_length'],
-                    temperature=params['temperature'],
-                    top_k=params['top_k'],
-                    top_p=params['top_p']
+                    **generation_params
                 )
             
             # Sadece yeni üretilen kısmı al
@@ -150,6 +135,91 @@ class Predictor:
         except Exception as e:
             print(f"❌ Generation hatası: {e}")
             return f"Üzgünüm, bir hata oluştu: {str(e)}"
+    
+    def _get_generation_params(self, strategy: str, max_length: Optional[int], **kwargs) -> Dict:
+        """
+        Üretim stratejisine göre parametreleri ayarla
+        
+        Args:
+            strategy: Üretim stratejisi
+            max_length: Maksimum uzunluk
+            **kwargs: Ek parametreler
+            
+        Returns:
+            Dict: Generation parametreleri
+        """
+        # Base parametreler
+        base_params = {
+            'max_length': max_length or self.default_params.get('max_length', 50),
+            'pad_token_id': self.tokenizer.pad_token_id,
+            'eos_token_id': self.tokenizer.eos_token_id,
+            'do_sample': False
+        }
+        
+        if strategy == 'greedy':
+            # Basit greedy search
+            return {**base_params, **self.default_params}
+        
+        elif strategy == 'beam':
+            # Beam search
+            return {
+                **base_params,
+                'do_sample': False,
+                'num_beams': kwargs.get('num_beams', 5),
+                'early_stopping': kwargs.get('early_stopping', True),
+                'length_penalty': kwargs.get('length_penalty', 1.0),
+                'no_repeat_ngram_size': kwargs.get('no_repeat_ngram_size', 3)
+            }
+        
+        elif strategy == 'top-k':
+            # Top-K sampling
+            return {
+                **base_params,
+                'do_sample': True,
+                'top_k': kwargs.get('top_k', 50),
+                'temperature': kwargs.get('temperature', 0.7),
+                'repetition_penalty': kwargs.get('repetition_penalty', 1.1)
+            }
+        
+        elif strategy == 'nucleus':
+            # Nucleus (Top-P) sampling
+            return {
+                **base_params,
+                'do_sample': True,
+                'top_p': kwargs.get('top_p', 0.9),
+                'temperature': kwargs.get('temperature', 0.8),
+                'repetition_penalty': kwargs.get('repetition_penalty', 1.1)
+            }
+        
+        else:
+            print(f"⚠️ Bilinmeyen strateji: {strategy}. Greedy kullanılıyor.")
+            return {**base_params, **self.default_params}
+    
+    def generate_multiple_responses(self, prompt_text: str, num_responses: int = 3, 
+                                  strategy: str = 'nucleus', **kwargs) -> List[str]:
+        """
+        Aynı prompt için birden fazla cevap üret
+        
+        Args:
+            prompt_text: Giriş metni
+            num_responses: Üretilecek cevap sayısı
+            strategy: Üretim stratejisi
+            **kwargs: Ek parametreler
+            
+        Returns:
+            List[str]: Üretilen cevaplar
+        """
+        responses = []
+        
+        for i in range(num_responses):
+            # Her seferinde farklı seed kullan
+            if 'temperature' in kwargs:
+                kwargs['temperature'] = kwargs['temperature'] + (i * 0.1)
+            
+            response = self.generate_response(prompt_text, strategy=strategy, **kwargs)
+            responses.append(response)
+        
+        return responses
     
     def generate_conversation(self, prompt: str, max_turns: int = 3, **kwargs) -> List[Dict]:
         """
