@@ -123,9 +123,19 @@ class Predictor:
             
             # Generation
             with torch.no_grad():
+                # Transformer model'in generate metodu için parametreleri uyarla
+                generate_kwargs = {
+                    'max_length': generation_params.get('max_length', 50),
+                    'temperature': generation_params.get('temperature', 0.7),
+                    'top_k': generation_params.get('top_k', 50),
+                    'top_p': generation_params.get('top_p', 0.9),
+                    'num_beams': generation_params.get('num_beams', 1),
+                    'repetition_penalty': generation_params.get('repetition_penalty', 1.1)
+                }
+                
                 generated_ids = self.model.generate(
                     input_ids=input_ids,
-                    **generation_params
+                    **generate_kwargs
                 )
             
             # Sadece yeni üretilen kısmı al
@@ -198,6 +208,38 @@ class Predictor:
         else:
             print(f"⚠️ Bilinmeyen strateji: {strategy}. Greedy kullanılıyor.")
             return {**base_params, **self.default_params}
+    
+    def _build_contextual_prompt(self, prompt_text: str, conversation_history: Optional[List[Dict]] = None) -> str:
+        """
+        Konuşma geçmişi ile prompt'u zenginleştir
+        
+        Args:
+            prompt_text: Mevcut prompt
+            conversation_history: Konuşma geçmişi
+            
+        Returns:
+            str: Zenginleştirilmiş prompt
+        """
+        if not conversation_history:
+            return prompt_text
+        
+        # Konuşma geçmişini birleştir
+        context_parts = []
+        for turn in conversation_history[-5:]:  # Son 5 tur
+            role = turn.get('role', 'user')
+            content = turn.get('content', '')
+            if role == 'user':
+                context_parts.append(f"Kullanıcı: {content}")
+            elif role == 'bot':
+                context_parts.append(f"Bot: {content}")
+        
+        # Mevcut prompt'u ekle
+        context_parts.append(f"Kullanıcı: {prompt_text}")
+        
+        # Tümünü birleştir
+        enriched_prompt = "\n".join(context_parts)
+        
+        return enriched_prompt
     
     def generate_multiple_responses(self, prompt_text: str, num_responses: int = 3, 
                                   strategy: str = 'nucleus', **kwargs) -> List[str]:

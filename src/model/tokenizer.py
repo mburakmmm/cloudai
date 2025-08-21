@@ -102,6 +102,37 @@ class CustomTokenizer:
             raise ValueError("Tokenizer henüz eğitilmemiş!")
         return self.tokenizer
     
+    @property
+    def pad_token_id(self) -> int:
+        """Pad token ID'sini döndür"""
+        if not self.is_trained:
+            return 0
+        return self.tokenizer.pad_token_id or 0
+    
+    @property
+    def eos_token_id(self) -> int:
+        """EOS token ID'sini döndür"""
+        if not self.is_trained:
+            return 1
+        return self.tokenizer.eos_token_id or 1
+    
+    @property
+    def bos_token_id(self) -> int:
+        """BOS token ID'sini döndür"""
+        if not self.is_trained:
+            return 1
+        return self.tokenizer.bos_token_id or 1
+    
+    @property
+    def unk_token_id(self) -> int:
+        """UNK token ID'sini döndür"""
+        if not self.is_trained:
+            return 3
+        return self.tokenizer.unk_token_id or 3
+        if not self.is_trained:
+            raise ValueError("Tokenizer henüz eğitilmemiş!")
+        return self.tokenizer
+    
     def encode(self, text: str, max_length: Optional[int] = None) -> Dict:
         """Metni tokenize et"""
         if not self.is_trained:
