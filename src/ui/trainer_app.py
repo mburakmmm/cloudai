@@ -782,12 +782,45 @@ class TrainerApp:
         """Kullanılan donanım bilgisini döndür."""
         try:
             import torch
+            device_info = []
+            
+            # PyTorch versiyonu
+            device_info.append(f"PyTorch: {torch.__version__}")
+            
+            # CUDA durumu
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                return f"CUDA GPU: {gpu_name} ({gpu_memory:.1f} GB)"
+                cuda_version = torch.version.cuda
+                device_count = torch.cuda.device_count()
+                
+                device_info.append(f"CUDA: {cuda_version}")
+                device_info.append(f"GPU: {gpu_name} ({gpu_memory:.1f} GB)")
+                device_info.append(f"GPU Count: {device_count}")
+                
+                return " | ".join(device_info)
             else:
-                return "CPU (CUDA mevcut değil)"
+                # CUDA neden mevcut değil detaylı bilgi
+                device_info.append("CUDA: Mevcut değil")
+                
+                # Olası nedenler
+                if hasattr(torch.version, 'cuda'):
+                    device_info.append(f"PyTorch CUDA: {torch.version.cuda}")
+                
+                # CUDA toolkit kontrolü
+                try:
+                    import subprocess
+                    result = subprocess.run(['nvcc', '--version'], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        nvcc_version = result.stdout.split('\n')[3].split('release ')[1].split(',')[0]
+                        device_info.append(f"CUDA Toolkit: {nvcc_version}")
+                    else:
+                        device_info.append("CUDA Toolkit: Bulunamadı")
+                except:
+                    device_info.append("CUDA Toolkit: Kontrol edilemedi")
+                
+                return " | ".join(device_info)
+                
         except ImportError:
             return "PyTorch yüklü değil"
     
