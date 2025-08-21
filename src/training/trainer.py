@@ -298,7 +298,7 @@ class Trainer:
             num_workers=num_workers,
             pin_memory=pin_memory,
             persistent_workers=dataloader_config.get('persistent_workers', True) if num_workers > 0 else False,
-            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else 2
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else None
         )
         
         val_loader = DataLoader(
@@ -309,7 +309,7 @@ class Trainer:
             num_workers=num_workers,
             pin_memory=pin_memory,
             persistent_workers=dataloader_config.get('persistent_workers', True) if num_workers > 0 else False,
-            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else 2
+            prefetch_factor=dataloader_config.get('prefetch_factor', 2) if num_workers > 0 else None
         )
         
         print(f"📚 Train: {len(train_dataset)}, Validation: {len(val_dataset)}")
