@@ -13,7 +13,14 @@ from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, pr
 class CustomTokenizer:
     """Özel tokenizer sınıfı - BPE tabanlı"""
     
-    def __init__(self, vocab_size: int = 30000, min_frequency: int = 2):
+    def __init__(self, vocab_size: int = 50000, min_frequency: int = 3):
+        """
+        Tokenizer başlat
+        
+        Args:
+            vocab_size: Kelime hazinesi boyutu (17K+ veri için optimize edildi)
+            min_frequency: Minimum token frekansı (daha az gürültü için)
+        """
         self.vocab_size = vocab_size
         self.min_frequency = min_frequency
         self.tokenizer = None
@@ -38,12 +45,14 @@ class CustomTokenizer:
             cls=("<s>", 1)
         )
         
-        # Trainer
+        # Trainer - 17K+ veri için optimize edildi
         trainer = trainers.BpeTrainer(
             vocab_size=self.vocab_size,
             min_frequency=self.min_frequency,
-            special_tokens=["<s>", "</s>", "<unk>", "<pad>"],
-            show_progress=True
+            special_tokens=["<s>", "</s>", "<unk>", "<pad>", "<mask>"],
+            show_progress=True,
+            limit_alphabet=1000,  # Alfabe boyutunu sınırla
+            initial_alphabet=pre_tokenizers.ByteLevel.alphabet()  # ByteLevel alfabesi
         )
         
         # Eğitim

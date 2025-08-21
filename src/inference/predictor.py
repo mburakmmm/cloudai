@@ -93,7 +93,7 @@ class Predictor:
             raise
     
     def generate_response(self, prompt_text: str, max_length: Optional[int] = None, 
-                         strategy: str = 'greedy', **kwargs) -> str:
+                         strategy: str = 'greedy', conversation_history: Optional[List[Dict]] = None, **kwargs) -> str:
         """
         Prompt'a cevap üret
         
@@ -101,6 +101,7 @@ class Predictor:
             prompt_text: Girdi metni
             max_length: Maksimum üretim uzunluğu
             strategy: Üretim stratejisi ('greedy', 'beam', 'top-k', 'nucleus')
+            conversation_history: Konuşma geçmişi [{'role': 'user', 'content': '...'}, {'role': 'bot', 'content': '...'}]
             **kwargs: Diğer generation parametreleri
             
         Returns:
@@ -109,12 +110,15 @@ class Predictor:
         if not self.model or not self.tokenizer:
             raise ValueError("Model veya tokenizer yüklenmemiş!")
         
+        # Konuşma geçmişini prompt'a ekle
+        enriched_prompt = self._build_contextual_prompt(prompt_text, conversation_history)
+        
         # Stratejiye göre parametreleri ayarla
         generation_params = self._get_generation_params(strategy, max_length, **kwargs)
         
         try:
-            # Prompt'u tokenize et
-            encoding = self.tokenizer.encode(prompt_text, max_length=512)
+            # Zenginleştirilmiş prompt'u tokenize et
+            encoding = self.tokenizer.encode(enriched_prompt, max_length=512)
             input_ids = encoding['input_ids'].to(self.device)
             
             # Generation
