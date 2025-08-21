@@ -21,19 +21,20 @@ def get_model_config() -> Dict[str, Any]:
 
 
 def get_training_config() -> Dict[str, Any]:
-    """Eğitim konfigürasyonu"""
+    """Eğitim konfigürasyonu - 17K veri için optimize edildi"""
     return {
-        "learning_rate": 1e-4,  # 2e-4 → 1e-4 (daha stabil)
+        "learning_rate": 1e-4,  # ✅ Zaten optimal
         "weight_decay": 0.01,
-        "batch_size": 16,  # 32 → 16 (daha iyi öğrenme)
-        "num_epochs": 50,  # 10 → 50 (5x daha fazla eğitim)
+        "batch_size": 32,  # 16 → 32 (GPU memory'e göre)
+        "num_epochs": 25,  # 50 → 25 (17K veri için optimal)
         "max_seq_length": 256,
-        "warmup_steps": 500,  # 100 → 500 (daha uzun warmup)
+        "warmup_steps": 1000,  # 500 → 1000 (daha uzun warmup)
         "gradient_clip_val": 1.0,
-        "early_stopping_patience": 10,  # 5 → 10 (daha sabırlı)
-        "save_every": 5,  # 1 → 5 (daha az checkpoint)
-        "gradient_accumulation_steps": 4,  # 2 → 4 (daha büyük effective batch)
-        "eval_every": 5  # 2 → 5 (daha az validation)
+        "early_stopping_patience": 8,  # 10 → 8 (daha dengeli)
+        "save_every": 3,  # 5 → 3 (daha sık checkpoint)
+        "gradient_accumulation_steps": 2,  # 4 → 2 (effective batch = 64)
+        "eval_every": 2,  # 5 → 2 (daha sık validation)
+        "validation_split": 0.15  # %15 validation
     }
 
 
