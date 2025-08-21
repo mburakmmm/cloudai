@@ -5,6 +5,7 @@ from typing import List, Dict, Optional
 import json
 import os
 import torch
+import pandas as pd
 from datetime import datetime
 
 # Import path'i ayarla
@@ -69,8 +70,16 @@ class TrainerApp:
         self.log_text_ref = ft.Ref[ft.TextField]()
         self.model_train_button = ft.Ref[ft.ElevatedButton]()
         
+        # İstatistik referansları
+        self.total_conversations_text = ft.Ref[ft.Text]()
+        self.today_conversations_text = ft.Ref[ft.Text]()
+        self.week_conversations_text = ft.Ref[ft.Text]()
+        
         # Arayüzü başlat
         self._initialize_ui()
+        
+        # Sayfa açıldığında verileri yükle
+        self.page.on_view_pop = self._on_view_pop
     
     def _initialize_ui(self):
         """Arayüzü başlat."""
@@ -345,7 +354,12 @@ class TrainerApp:
                             color=ft.Colors.GREY_700
                         ),
                         
-                        self.log_text
+                        ft.Container(
+                            content=self.log_text,
+                            height=200,
+                            border=ft.border.all(1, ft.Colors.GREY_300),
+                            border_radius=4
+                        )
                     ]),
                     padding=ft.padding.all(15),
                     bgcolor=ft.Colors.GREY_50,
@@ -374,7 +388,7 @@ class TrainerApp:
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("Toplam Konuşma", size=14, color=ft.Colors.GREY_600),
-                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600)
+                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600, ref=self.total_conversations_text)
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=ft.padding.all(15),
                             bgcolor=ft.Colors.WHITE,
@@ -385,7 +399,7 @@ class TrainerApp:
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("Bugün Eklenen", size=14, color=ft.Colors.GREY_600),
-                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_600)
+                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_600, ref=self.today_conversations_text)
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=ft.padding.all(15),
                             bgcolor=ft.Colors.WHITE,
@@ -396,7 +410,7 @@ class TrainerApp:
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("Bu Hafta", size=14, color=ft.Colors.GREY_600),
-                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_600)
+                                ft.Text("0", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_600, ref=self.week_conversations_text)
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=ft.padding.all(15),
                             bgcolor=ft.Colors.WHITE,
@@ -489,6 +503,10 @@ class TrainerApp:
             self._update_log("⚠️ Tokenizer zaten eğitiliyor!")
             return
         
+        # Donanım bilgisi
+        device_info = self._get_device_info()
+        self._update_log(f"🖥️ Donanım: {device_info}")
+        
         # Veritabanından veri kontrolü
         try:
             df = self.db_manager.get_all_conversations()
@@ -566,6 +584,10 @@ class TrainerApp:
         if self.is_training:
             self._update_log("⚠️ Model zaten eğitiliyor!")
             return
+        
+        # Donanım bilgisi
+        device_info = self._get_device_info()
+        self._update_log(f"🖥️ Donanım: {device_info}")
         
         if not self.tokenizer:
             self._update_log("❌ Önce tokenizer'ı eğitin!")
@@ -680,8 +702,39 @@ class TrainerApp:
     
     def _refresh_data(self, e):
         """Verileri yenile."""
-        # TODO: Implement data refresh
-        pass
+        try:
+            # Veritabanından verileri al
+            df = self.db_manager.get_all_conversations()
+            
+            if df.empty:
+                # İstatistikleri sıfırla
+                self.total_conversations_text.current.value = "0"
+                self.today_conversations_text.current.value = "0"
+                self.week_conversations_text.current.value = "0"
+                self._update_log("ℹ️ Veritabanında henüz veri yok")
+            else:
+                # Toplam konuşma sayısı
+                total_count = len(df)
+                self.total_conversations_text.current.value = str(total_count)
+                
+                # Bugün eklenen konuşma sayısı
+                from datetime import datetime, timedelta
+                today = datetime.now().date()
+                today_count = len(df[pd.to_datetime(df['created_at']).dt.date == today])
+                self.today_conversations_text.current.value = str(today_count)
+                
+                # Bu hafta eklenen konuşma sayısı
+                week_ago = today - timedelta(days=7)
+                week_count = len(df[pd.to_datetime(df['created_at']).dt.date >= week_ago])
+                self.week_conversations_text.current.value = str(week_count)
+                
+                self._update_log(f"✅ Veriler yenilendi: Toplam {total_count}, Bugün {today_count}, Bu hafta {week_count}")
+            
+            self.page.update()
+            
+        except Exception as e:
+            self._update_log(f"❌ Veri yenileme hatası: {e}")
+            self._show_status("Hata!", ft.Colors.RED_600)
     
 
     
@@ -724,6 +777,24 @@ class TrainerApp:
         if not visible:
             self.progress_bar.value = 0
         self.page.update()
+    
+    def _get_device_info(self):
+        """Kullanılan donanım bilgisini döndür."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                return f"CUDA GPU: {gpu_name} ({gpu_memory:.1f} GB)"
+            else:
+                return "CPU (CUDA mevcut değil)"
+        except ImportError:
+            return "PyTorch yüklü değil"
+    
+    def _on_view_pop(self, e):
+        """Sayfa açıldığında çalışır."""
+        # Verileri otomatik yükle
+        self._refresh_data(None)
 
 def main():
     """Ana uygulama fonksiyonu."""
